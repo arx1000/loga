@@ -1,127 +1,308 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, useInView } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+
+class WebGLRenderer {
+  private canvas: HTMLCanvasElement;
+  private gl: WebGL2RenderingContext;
+  private program: WebGLProgram | null = null;
+  private vs: WebGLShader | null = null;
+  private fs: WebGLShader | null = null;
+  private buffer: WebGLBuffer | null = null;
+  private scale: number;
+  private shaderSource: string;
+  private mouseMove = [0, 0];
+  private mouseCoords = [0, 0];
+  private pointerCoords = [0, 0];
+  private nbrOfPointers = 0;
+
+  private vertexSrc = `#version 300 es
+precision highp float;
+in vec4 position;
+void main(){gl_Position=position;}`;
+
+  private vertices = [-1, 1, -1, -1, 1, 1, 1, -1];
+
+  constructor(canvas: HTMLCanvasElement, scale: number) {
+    this.canvas = canvas;
+    this.scale = scale;
+    this.gl = canvas.getContext("webgl2")!;
+    this.gl.viewport(0, 0, canvas.width * scale, canvas.height * scale);
+    this.shaderSource = getShaderSource();
+  }
+
+  updateShader(source: string) {
+    this.reset();
+    this.shaderSource = source;
+    this.setup();
+    this.init();
+  }
+
+  updateMove(deltas: number[]) { this.mouseMove = deltas; }
+  updateMouse(coords: number[]) { this.mouseCoords = coords; }
+  updatePointerCoords(coords: number[]) { this.pointerCoords = coords; }
+  updatePointerCount(nbr: number) { this.nbrOfPointers = nbr; }
+
+  updateScale(scale: number) {
+    this.scale = scale;
+    this.gl.viewport(0, 0, this.canvas.width * scale, this.canvas.height * scale);
+  }
+
+  private compile(shader: WebGLShader, source: string) {
+    const gl = this.gl;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+  }
+
+  reset() {
+    const gl = this.gl;
+    if (this.program && !gl.getProgramParameter(this.program, gl.DELETE_STATUS)) {
+      if (this.vs) { gl.detachShader(this.program, this.vs); gl.deleteShader(this.vs); }
+      if (this.fs) { gl.detachShader(this.program, this.fs); gl.deleteShader(this.fs); }
+      gl.deleteProgram(this.program);
+    }
+  }
+
+  setup() {
+    const gl = this.gl;
+    this.vs = gl.createShader(gl.VERTEX_SHADER)!;
+    this.fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+    this.compile(this.vs, this.vertexSrc);
+    this.compile(this.fs, this.shaderSource);
+    this.program = gl.createProgram()!;
+    gl.attachShader(this.program, this.vs);
+    gl.attachShader(this.program, this.fs);
+    gl.linkProgram(this.program);
+  }
+
+  init() {
+    const gl = this.gl;
+    const program = this.program!;
+    this.buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, "position");
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    (program as any).resolution = gl.getUniformLocation(program, "resolution");
+    (program as any).time = gl.getUniformLocation(program, "time");
+    (program as any).move = gl.getUniformLocation(program, "move");
+    (program as any).touch = gl.getUniformLocation(program, "touch");
+    (program as any).pointerCount = gl.getUniformLocation(program, "pointerCount");
+    (program as any).pointers = gl.getUniformLocation(program, "pointers");
+  }
+
+  render(now = 0) {
+    const gl = this.gl;
+    const program = this.program;
+    if (!program || gl.getProgramParameter(program, gl.DELETE_STATUS)) return;
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    gl.uniform2f((program as any).resolution, this.canvas.width, this.canvas.height);
+    gl.uniform1f((program as any).time, now * 1e-3);
+    gl.uniform2f((program as any).move, this.mouseMove[0], this.mouseMove[1]);
+    gl.uniform2f((program as any).touch, this.mouseCoords[0], this.mouseCoords[1]);
+    gl.uniform1i((program as any).pointerCount, this.nbrOfPointers);
+    gl.uniform2fv((program as any).pointers, this.pointerCoords);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+}
+
+class PointerHandler {
+  private scale: number;
+  private active = false;
+  private pointers = new Map<number, number[]>();
+  private lastCoords = [0, 0];
+  private moves = [0, 0];
+
+  constructor(element: HTMLCanvasElement, scale: number) {
+    this.scale = scale;
+    const map = (el: HTMLCanvasElement, s: number, x: number, y: number) => [x * s, el.height - y * s];
+
+    element.addEventListener("pointerdown", (e) => {
+      this.active = true;
+      this.pointers.set(e.pointerId, map(element, this.getScale(), e.clientX, e.clientY));
+    });
+    element.addEventListener("pointerup", (e) => {
+      if (this.count === 1) this.lastCoords = this.first;
+      this.pointers.delete(e.pointerId);
+      this.active = this.pointers.size > 0;
+    });
+    element.addEventListener("pointerleave", (e) => {
+      if (this.count === 1) this.lastCoords = this.first;
+      this.pointers.delete(e.pointerId);
+      this.active = this.pointers.size > 0;
+    });
+    element.addEventListener("pointermove", (e) => {
+      if (!this.active) return;
+      this.lastCoords = [e.clientX, e.clientY];
+      this.pointers.set(e.pointerId, map(element, this.getScale(), e.clientX, e.clientY));
+      this.moves = [this.moves[0] + e.movementX, this.moves[1] + e.movementY];
+    });
+  }
+
+  getScale() { return this.scale; }
+  updateScale(scale: number) { this.scale = scale; }
+  get count() { return this.pointers.size; }
+  get move() { return this.moves; }
+  get coords() { return this.pointers.size > 0 ? Array.from(this.pointers.values()).flat() : [0, 0]; }
+  get first() { return this.pointers.values().next().value || this.lastCoords; }
+}
+
+function getShaderSource() {
+  return `#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 resolution;
+uniform float time;
+#define FC gl_FragCoord.xy
+#define T time
+#define R resolution
+#define MN min(R.x,R.y)
+float rnd(vec2 p) {
+  p=fract(p*vec2(12.9898,78.233));
+  p+=dot(p,p+34.56);
+  return fract(p.x*p.y);
+}
+float noise(in vec2 p) {
+  vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+  float a=rnd(i),b=rnd(i+vec2(1,0)),c=rnd(i+vec2(0,1)),d=rnd(i+1.);
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+float fbm(vec2 p) {
+  float t=.0,a=1.;mat2 m=mat2(1.,-.5,.2,1.2);
+  for(int i=0;i<5;i++){t+=a*noise(p);p*=2.*m;a*=.5;}
+  return t;
+}
+float clouds(vec2 p) {
+  float d=1.,t=.0;
+  for(float i=.0;i<3.;i++){float a=d*fbm(i*10.+p.x*.2+.2*(1.+i)*p.y+d+i*i+p);t=mix(t,d,a);d=a;p*=2./(i+1.);}
+  return t;
+}
+void main(void) {
+  vec2 uv=(FC-.5*R)/MN,st=uv*vec2(2,1);
+  vec3 col=vec3(0);
+  float bg=clouds(vec2(st.x+T*.5,-st.y));
+  uv*=1.-.3*(sin(T*.2)*.5+.5);
+  for(float i=1.;i<12.;i++){
+    uv+=.1*cos(i*vec2(.1+.01*i,.8)+i*i+T*.5+.1*uv.x);
+    vec2 p=uv;
+    float d=length(p);
+    col+=.00125/d*(cos(sin(i)*vec3(1,2,3))+1.);
+    float b=noise(i+p+bg*1.731);
+    col+=.002*b/length(max(p,vec2(b*p.x*.02,p.y)));
+    col=mix(col,vec3(bg*.25,bg*.137,bg*.05),d);
+  }
+  O=vec4(col,1);
+}`;
+}
 
 export function HeroSection() {
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once: true });
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<WebGLRenderer | null>(null);
+  const pointersRef = useRef<PointerHandler | null>(null);
+  const animationRef = useRef<number>(undefined);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const dpr = Math.max(1, 0.5 * window.devicePixelRatio);
+
+    rendererRef.current = new WebGLRenderer(canvas, dpr);
+    pointersRef.current = new PointerHandler(canvas, dpr);
+    rendererRef.current.setup();
+    rendererRef.current.init();
+
+    const resize = () => {
+      if (!canvas || !rendererRef.current) return;
+      const dpr2 = Math.max(1, 0.5 * window.devicePixelRatio);
+      canvas.width = window.innerWidth * dpr2;
+      canvas.height = window.innerHeight * dpr2;
+      rendererRef.current.updateScale(dpr2);
+    };
+    resize();
+    rendererRef.current.render(0);
+
+    const loop = (now: number) => {
+      if (!rendererRef.current || !pointersRef.current) return;
+      rendererRef.current.updateMouse(pointersRef.current.first);
+      rendererRef.current.updatePointerCount(pointersRef.current.count);
+      rendererRef.current.updatePointerCoords(pointersRef.current.coords);
+      rendererRef.current.updateMove(pointersRef.current.move);
+      rendererRef.current.render(now);
+      animationRef.current = requestAnimationFrame(loop);
+    };
+    animationRef.current = requestAnimationFrame(loop);
+
+    window.addEventListener("resize", resize);
+    return () => {
+      window.removeEventListener("resize", resize);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (rendererRef.current) rendererRef.current.reset();
+    };
+  }, []);
 
   return (
-    <section ref={ref} className="relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br from-accent/5 via-background to-accent/5">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-secondary/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary-light/5 rounded-full blur-3xl" />
-      </div>
+    <section className="relative min-h-screen flex items-center overflow-hidden bg-black">
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full object-contain touch-none"
+      />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/40 z-10" />
+      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent z-10" />
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20 sm:pt-40 sm:pb-32">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-          <div>
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6 }}
-            >
-              <span className="inline-block px-4 py-1.5 bg-primary/10 text-primary text-sm font-medium rounded-full mb-6">
-                Handcrafted Since 1989
-              </span>
-            </motion.div>
-
-            <motion.h1
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-serif font-bold tracking-tight leading-[1.1]"
-            >
-              Doors That{" "}
-              <span className="text-primary">Define</span> Your Space
-            </motion.h1>
-
-            <motion.p
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="mt-6 text-base sm:text-lg text-muted leading-relaxed max-w-lg"
-            >
-              From classic mahogany to modern oak — each LuxWood door is
-              masterfully crafted from the finest materials, bringing warmth
-              and elegance to every entrance.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="mt-8 flex flex-col sm:flex-row gap-4"
-            >
-              <Link
-                href="/shop"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-primary text-white font-medium rounded-xl hover:bg-primary-dark transition-all duration-300 active:scale-[0.97] group"
-              >
-                Explore Collection
-                <ArrowRight
-                  size={18}
-                  className="group-hover:translate-x-1 transition-transform"
-                />
-              </Link>
-              <Link
-                href="#featured"
-                className="inline-flex items-center justify-center px-8 py-4 border-2 border-primary/30 text-primary font-medium rounded-xl hover:bg-primary/5 transition-all duration-300"
-              >
-                View Best Sellers
-              </Link>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className="mt-10 flex items-center gap-8 text-sm"
-            >
-              {[
-                { label: "Premium Woods", value: "12+" },
-                { label: "Years Crafting", value: "35+" },
-                { label: "Happy Homes", value: "10K+" },
-              ].map((stat) => (
-                <div key={stat.label}>
-                  <span className="block text-2xl font-bold text-primary">
-                    {stat.value}
-                  </span>
-                  <span className="text-muted">{stat.label}</span>
-                </div>
-              ))}
-            </motion.div>
+      <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20 sm:pt-40 sm:pb-32 w-full">
+        <div className="max-w-3xl">
+          <div className="inline-block px-5 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-accent text-sm font-medium rounded-full mb-6">
+            Handcrafted Since 1989
           </div>
 
-          <motion.div
-            initial={{ opacity: 0, x: 50 }}
-            animate={isInView ? { opacity: 1, x: 0 } : {}}
-            transition={{ duration: 0.8, delay: 0.3 }}
-            className="relative hidden lg:block"
-          >
-            <div className="relative aspect-[4/5] rounded-2xl overflow-hidden shadow-2xl">
-              <div
-                className="absolute inset-0 bg-cover bg-center"
-                style={{
-                  backgroundImage:
-                    "url(https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?w=800&h=1000&fit=crop)",
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
-            </div>
-            <div className="absolute -bottom-6 -left-6 bg-card rounded-2xl shadow-xl p-5 max-w-[200px]">
-              <p className="text-sm font-semibold">The Heritage</p>
-              <p className="text-xs text-muted mt-1">Our most popular door</p>
-              <p className="text-lg font-bold text-primary mt-2">$899</p>
-            </div>
-            <div className="absolute -top-4 -right-4 bg-primary text-white rounded-2xl shadow-xl p-4 text-center">
-              <p className="text-2xl font-bold">4.8</p>
-              <p className="text-xs opacity-80">★★★★★</p>
-            </div>
-          </motion.div>
+          <h1 className="font-serif text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-bold text-white leading-[1.1] mb-6">
+            Doors That{" "}
+            <span className="text-accent">Define</span> Your Space
+          </h1>
+
+          <p className="text-lg sm:text-xl text-white/70 leading-relaxed max-w-xl mb-10">
+            From classic mahogany to modern oak — each LuxWood door is
+            masterfully crafted from the finest materials, bringing warmth
+            and elegance to every entrance.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Link
+              href="/shop"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-accent text-black font-semibold rounded-xl hover:bg-accent-light transition-all duration-300 active:scale-[0.97] group"
+            >
+              Explore Collection
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="group-hover:translate-x-1 transition-transform">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </Link>
+            <Link
+              href="#featured"
+              className="inline-flex items-center justify-center px-8 py-4 border-2 border-white/30 text-white font-medium rounded-xl hover:bg-white/10 transition-all duration-300"
+            >
+              View Best Sellers
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-8 mt-12 text-sm">
+            {[
+              { label: "Premium Woods", value: "12+" },
+              { label: "Years Crafting", value: "35+" },
+              { label: "Happy Homes", value: "10K+" },
+            ].map((stat) => (
+              <div key={stat.label}>
+                <span className="block text-2xl font-bold text-accent">
+                  {stat.value}
+                </span>
+                <span className="text-white/50">{stat.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
