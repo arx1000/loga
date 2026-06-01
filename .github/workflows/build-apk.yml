@@ -40,7 +40,14 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Build APK
-        run: cd android && ./gradlew assembleDebug --stacktrace
+        run: cd android && ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-output.txt
+
+      - name: Upload Gradle output (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-output
+          path: android/gradle-output.txt
 
       - uses: actions/upload-artifact@v4
         with:
