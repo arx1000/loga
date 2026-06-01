@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Cormorant, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -19,6 +19,22 @@ export const metadata: Metadata = {
   title: "LuxWood Doors — Premium Handcrafted Wooden Doors",
   description:
     "Discover handcrafted wooden doors from LuxWood. Premium mahogany, oak, walnut doors with free shipping, 5-year warranty, and custom sizing available.",
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/icon-512.svg",
+    apple: "/icon-512.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "LuxWood",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

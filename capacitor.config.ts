@@ -1,0 +1,32 @@
+import type { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.luxwood.doors',
+  appName: 'LuxWood',
+  webDir: 'out',
+  server: {
+    url: 'https://wooden-doors.vercel.app',
+    cleartext: false,
+  },
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 2000,
+      launchAutoHide: true,
+      backgroundColor: '#0c0a09',
+      androidScaleType: 'CENTER_CROP',
+      splashFullScreen: true,
+      splashImmersive: true,
+    },
+    StatusBar: {
+      style: 'DARK',
+      overlaysWebView: false,
+      backgroundColor: '#0c0a09',
+    },
+    Keyboard: {
+      resize: 'body',
+      resizeOnFullScreen: true,
+    },
+  },
+};
+
+export default config;

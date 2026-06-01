@@ -9,6 +9,7 @@ import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { CartDrawer } from "@/components/features/cart-drawer";
 import { ChatBot } from "@/components/features/chatbot";
+import { PWARegister } from "@/components/features/pwa-register";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -21,6 +22,7 @@ export function Providers({ children }: { children: ReactNode }) {
             <Footer />
             <CartDrawer />
             <ChatBot />
+            <PWARegister />
           </CartProvider>
         </ToastProvider>
       </AuthProvider>
