@@ -42,8 +42,12 @@ jobs:
       - name: Build APK
         run: cd android && ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-output.txt
 
-      - name: Find APK files
-        run: find android -name "*.apk" -type f
+      - name: Find and copy APK files
+        run: |
+          find android -name "*.apk" -type f
+          mkdir -p apk-output
+          find android -name "*.apk" -type f -exec cp {} apk-output/ \;
+          ls -la apk-output/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -53,4 +57,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: luxwood-doors-apk
-          path: android/**/*.apk
+          path: apk-output/
