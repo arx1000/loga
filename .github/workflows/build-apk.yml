@@ -29,8 +29,11 @@ jobs:
       - name: Ensure webDir exists for Capacitor
         run: mkdir -p out
 
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
       - name: Build APK
-        run: cd android && ./gradlew assembleDebug
+        run: cd android && ./gradlew assembleDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
