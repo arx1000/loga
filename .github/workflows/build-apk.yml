@@ -43,20 +43,16 @@ jobs:
         run: cd android && ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-output.txt
 
       - name: List build outputs
-        run: |
-          echo "=== FIND APK ===" >> android/gradle-output.txt
-          find android -name "*.apk" -type f >> android/gradle-output.txt
-          echo "=== BUILD DIR ===" >> android/gradle-output.txt
-          ls -R android/app/build/outputs/ >> android/gradle-output.txt 2>&1
-          echo "=== ALL APKS ===" >> android/gradle-output.txt
-          find . -name "*.apk" -type f >> android/gradle-output.txt
+        run: find android -name "*.apk" -type f || echo "No APK files found"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: gradle-output
           path: android/gradle-output.txt
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: luxwood-doors-apk
+          name: build-outputs
           path: android/app/build/outputs/
