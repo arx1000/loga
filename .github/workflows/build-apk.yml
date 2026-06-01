@@ -42,22 +42,18 @@ jobs:
       - name: Build APK
         run: cd android && ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle-output.txt
 
-      - name: Locate APK files
+      - name: Locate and package APK
         run: |
-          echo "=== Finding APKs ==="
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found via find"
-          echo "=== Check build dir ==="
-          ls -la android/app/build/ 2>/dev/null || echo "No build dir"
-          echo "=== outputs ==="
-          ls -la android/app/build/outputs/ 2>/dev/null || echo "No outputs dir"
-          echo "=== APKs in outputs ==="
-          find android/app/build/outputs/ -name "*.apk" -type f 2>/dev/null || echo "No APKs in outputs"
-
-      - name: Copy APK to workspace root
-        run: |
+          echo "=== Finding APKs ===" >> android/gradle-output.txt
+          find . -name "*.apk" -type f >> android/gradle-output.txt 2>&1
+          echo "=== Build dir ===" >> android/gradle-output.txt
+          ls -la android/app/build/ >> android/gradle-output.txt 2>&1
+          echo "=== Build outputs ===" >> android/gradle-output.txt
+          find android/app/build/ -type f >> android/gradle-output.txt 2>&1
           mkdir -p apk-artifact
-          find . -name "*.apk" -type f -exec cp {} apk-artifact/ \; 2>/dev/null || echo "No APK to copy"
-          ls -la apk-artifact/
+          find . -name "*.apk" -type f -exec cp {} apk-artifact/ \; 2>/dev/null || true
+          echo "=== APK artifact dir ===" >> android/gradle-output.txt
+          ls -la apk-artifact/ >> android/gradle-output.txt 2>&1
 
       - uses: actions/upload-artifact@v4
         if: always()
